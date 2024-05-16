@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 from typing import Any, Dict
-
+import requests
 from aiogram import Bot, Dispatcher, F, Router, html
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
@@ -15,13 +15,14 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from config import TOKEN
+from config import TOKEN, kjh2ru_url, ru2kjh_url, kjh_tts_url
 
 form_router = Router()
 
 
 class Form(StatesGroup):
     task = State()
+    user_input = State()
 
 
 @form_router.message(CommandStart())
@@ -108,48 +109,48 @@ async def process_task(message: Message, state: FSMContext) -> None:
     task = data['task']
 
     if task == 'Перевести текст с хакасского на русский':
+        await state.set_state(Form.user_input)
         await message.answer("Введите текст на хакасском языке", reply_markup=ReplyKeyboardRemove())
     elif task == 'Перевести текст с русского на хакасский':
+        await state.set_state(Form.user_input)
         await message.answer("Введите текст на русском языке", reply_markup=ReplyKeyboardRemove())
     elif task == 'Озвучить текст на хакасском языке':
+        await state.set_state(Form.user_input)
         await message.answer("ВЫ: Озвучить текст на хакасском языке", reply_markup=ReplyKeyboardRemove())
     else:
         await message.answer("Некорректная команда", reply_markup=ReplyKeyboardRemove())
 
 
-async def translate_khakas_russian(message: Message, state: FSMContext, from_skip: bool = False, to_correct: bool = False) -> None:
-    data = await state.get_data()
+@form_router.message(Form.user_input)
+async def process_user_input(message: Message, state: FSMContext) -> None:
+    data = await state.update_data(task=message.text)
+    task = data['task']
+    user_input = data['user_input']
 
-    # allow user to correct his answer
-    if to_correct:
-        input_sent = data['input_sent']
-        await state.set_state(Form.user_sent)
-
-        # if user skip, just change sentence
-        if from_skip:
-            await message.edit_text(f'{input_sent}', reply_markup=skip_change_keyboard)
-        else:
-            await message.answer('*Переведите с хакасского языка на русский:*', reply_markup=ReplyKeyboardRemove(),
-                                 parse_mode='MarkdownV2')
-            await message.answer(f'{input_sent}', reply_markup=skip_change_keyboard)
+    if task == 'Перевести текст с хакасского на русский':
+        await translate_kjh2ru(message=message, state=state, text=user_input)
+    elif task == 'Перевести текст с русского на хакасский':
+        await translate_kjh2ru(message=message, state=state, text=user_input)
+    elif task == 'Озвучить текст на хакасском языке':
+        await state.set_state(Form.user_input)
+        await message.answer("ВЫ: Озвучить текст на хакасском языке", reply_markup=ReplyKeyboardRemove())
     else:
-        input_sent = prepare_sent_for_translation(language='khakas')
-        if input_sent is None:
-            await state.update_data(available_translate=False)
-            await message.answer('*Задания данного типа закончились\.*', parse_mode='MarkdownV2')
-            await choose_task_type(message=message, state=state)
-        else:
-            await state.update_data(input_sent=input_sent)
+        await message.answer("Некорректная команда", reply_markup=ReplyKeyboardRemove())
 
-            await state.set_state(Form.user_sent)
 
-            # if user skip, just change sentence
-            if from_skip:
-                await message.edit_text(f'{input_sent}', reply_markup=skip_change_keyboard)
-            else:
-                await message.answer('*Переведите с хакасского языка на русский:*', reply_markup=ReplyKeyboardRemove(),
-                                     parse_mode='MarkdownV2')
-                await message.answer(f'{input_sent}', reply_markup=skip_change_keyboard)
+async def translate_kjh2ru(message: Message, state: FSMContext, text: str) -> None:
+    translation = requests.get(kjh2ru_url, params={'text': text}).text
+    await message.reply(text=translation, reply_markup=ReplyKeyboardRemove())
+
+
+async def translate_ru2kjh(message: Message, state: FSMContext, text: str) -> None:
+    translation = requests.get(ru2kjh_url, params={'text': text}).text
+    await message.reply(text=translation, reply_markup=ReplyKeyboardRemove())
+
+
+
+
+
 
 # async def show_summary(message: Message, data: Dict[str, Any], positive: bool = True) -> None:
 #     name = data["name"]
